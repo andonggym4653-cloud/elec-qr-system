@@ -1,0 +1,1352 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>시설관리공단 전기직 스마트 인수인계 & QR 관리 시스템</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- QRCode.js for generating QR code -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Html5Qrcode for QR Scanning -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+        body { font-family: 'Noto Sans KR', sans-serif; }
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white !important; font-size: 12pt; }
+            .print-card { page-break-inside: avoid; border: 1px solid #999 !important; }
+        }
+        .print-only { display: none; }
+        
+        /* QR Scanner Camera Overlay Styling */
+        #qr-reader video {
+            object-fit: cover !important;
+            border-radius: 0.75rem;
+        }
+        .scan-region-highlight {
+            border: 2px solid #2563eb !important;
+            border-radius: 12px;
+            box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.4);
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col">
+
+    <!-- Environment Notice Banner (Shown if running locally or in sandbox) -->
+    <div id="envWarningBanner" class="hidden bg-amber-500 text-slate-900 px-4 py-2.5 text-xs font-medium no-print shadow-md">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-triangle-exclamation text-base text-slate-900"></i>
+                <span><strong>[로컬/미리보기 실행 중]</strong> 핸드폰 기본 카메라로 QR 스캔이 안 되는 이유: 현재 페이지가 웹 서빙(`https://`) 상태가 아니기 때문입니다. 핸드폰으로 직접 열려면 GitHub Pages 또는 Live Server로 호스팅하세요. <u>(앱 내 'QR 현장 스캔' 탭을 이용하면 로컬에서도 스캔 테스트가 가능합니다)</u></span>
+            </div>
+            <button onclick="document.getElementById('envWarningBanner').remove()" class="text-slate-900 font-bold hover:underline text-xs">닫기</button>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-slate-900 text-white shadow-lg no-print">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-2">
+            <div class="flex items-center space-x-3">
+                <div class="bg-blue-600 p-2.5 rounded-lg text-white shadow-md">
+                    <i class="fa-solid fa-bolt text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight flex items-center gap-2">
+                        <span>시설관리공단 전기직</span>
+                        <span class="text-xs bg-blue-500/30 text-blue-300 border border-blue-400/40 px-2 py-0.5 rounded-full font-normal">스마트 인수인계 v2.1</span>
+                    </h1>
+                    <p class="text-xs text-slate-300">스마트폰 QR 다이렉트 인식 · 자폐형 페이로드 연동 · 설비 이력 관리</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2 text-sm">
+                <span id="hostStatusBadge" class="bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-200">
+                    <i class="fa-solid fa-globe text-emerald-400 mr-1"></i> <span id="hostStatusText">웹 호스팅 상태</span>
+                </span>
+                <button onclick="exportData()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg text-xs transition shadow-sm">
+                    <i class="fa-solid fa-download mr-1"></i> 백업
+                </button>
+                <label class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg text-xs transition shadow-sm cursor-pointer">
+                    <i class="fa-solid fa-upload mr-1"></i> 복원
+                    <input type="file" id="importFile" onchange="importData(event)" class="hidden" accept=".json">
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="bg-white border-b border-slate-200 no-print sticky top-0 z-20 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 flex space-x-1 sm:space-x-4 overflow-x-auto">
+            <button onclick="switchTab('list')" id="tab-list" class="tab-btn py-3 px-4 text-sm font-semibold border-b-2 border-blue-600 text-blue-600 flex items-center whitespace-nowrap">
+                <i class="fa-solid fa-list-check mr-2"></i> 시설물 대장
+            </button>
+            <button onclick="switchTab('scan')" id="tab-scan" class="tab-btn py-3 px-4 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center whitespace-nowrap">
+                <i class="fa-solid fa-qrcode mr-2"></i> QR 현장 스캔
+            </button>
+            <button onclick="switchTab('tags')" id="tab-tags" class="tab-btn py-3 px-4 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center whitespace-nowrap">
+                <i class="fa-solid fa-print mr-2"></i> QR 라벨 출력
+            </button>
+            <button onclick="switchTab('report')" id="tab-report" class="tab-btn py-3 px-4 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center whitespace-nowrap">
+                <i class="fa-solid fa-file-contract mr-2"></i> 인수인계서 작성
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content Container -->
+    <main class="max-w-7xl mx-auto px-4 py-6 flex-grow w-full">
+
+        <!-- TAB 1: Facility List Section -->
+        <section id="view-list" class="tab-content block">
+            <!-- Top Controls & Search -->
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div class="flex flex-wrap gap-2 w-full sm:w-auto">
+                    <div class="relative w-full sm:w-56">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400"></i>
+                        <input type="text" id="searchInput" oninput="renderFacilityList()" placeholder="설비명, 위치, QR 검색" class="pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm w-full focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <select id="workplaceFilter" onchange="renderFacilityList()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="ALL">🏢 전체 사업장</option>
+                    </select>
+                    <select id="categoryFilter" onchange="renderFacilityList()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="ALL">전체 설비 종류</option>
+                        <option value="수배전반">수배전반/변전실</option>
+                        <option value="비상발전기">비상발전기</option>
+                        <option value="승강기">승강기/에스컬레이터</option>
+                        <option value="태양광/RPS">태양광/신재생</option>
+                        <option value="조명/동력">조명/동력분전반</option>
+                        <option value="기타">기타 전기설비</option>
+                    </select>
+                    <select id="statusFilter" onchange="renderFacilityList()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="ALL">전체 인수 상태</option>
+                        <option value="양호">양호</option>
+                        <option value="점검필요">점검필요</option>
+                        <option value="수리중">수리중</option>
+                        <option value="미인수">미인수</option>
+                    </select>
+                </div>
+                <div class="flex gap-2 w-full sm:w-auto">
+                    <button onclick="openWorkplaceModal()" class="bg-slate-700 hover:bg-slate-800 text-white font-medium px-3 py-2 rounded-lg text-sm flex items-center justify-center space-x-1 shadow-sm transition">
+                        <i class="fa-solid fa-building-user mr-1"></i>
+                        <span>사업장 관리</span>
+                    </button>
+                    <button onclick="openModal('add')" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm flex items-center justify-center space-x-2 shadow transition whitespace-nowrap">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>신규 전기설비 등록</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Facility Grid Cards -->
+            <div id="facilityContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                <!-- Facility Cards populated via JS -->
+            </div>
+        </section>
+
+        <!-- TAB 2: QR Scan Section -->
+        <section id="view-scan" class="tab-content hidden">
+            <div class="max-w-lg mx-auto bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <div class="text-center mb-4">
+                    <h2 class="text-lg font-bold text-slate-800"><i class="fa-solid fa-camera mr-2 text-blue-600"></i>스마트 QR 현장 카메라 스캔</h2>
+                    <p class="text-xs text-slate-500 mt-1">
+                        설비 표찰의 QR 코드를 비추면, **스마트폰에 기존 데이터가 없더라도** QR에 내장된 페이로드 데이터로 해당 시설물 정보를 즉시 인식 및 자동 복원합니다.
+                    </p>
+                </div>
+                
+                <!-- Scanner Viewport Container -->
+                <div class="relative overflow-hidden rounded-xl border-2 border-slate-800 bg-slate-900 mb-4 min-h-[280px] flex flex-col items-center justify-center shadow-inner">
+                    <div id="qr-reader" class="w-full"></div>
+                    <div id="cameraStatusText" class="text-xs text-slate-300 p-3 text-center">카메라 준비 중...</div>
+                </div>
+
+                <!-- Camera Controls -->
+                <div class="flex items-center justify-between gap-2 mb-4">
+                    <button onclick="toggleCameraFacing()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition">
+                        <i class="fa-solid fa-camera-rotate text-blue-600"></i> 카메라 전환 (전/후면)
+                    </button>
+                    <button onclick="restartCamera()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition">
+                        <i class="fa-solid fa-arrows-rotate text-slate-600"></i> 재시도
+                    </button>
+                </div>
+
+                <div id="qr-reader-results" class="text-xs font-semibold text-center text-blue-600 min-h-[20px] mb-2"></div>
+
+                <div class="pt-4 border-t border-slate-100 flex flex-col gap-2">
+                    <span class="text-xs text-slate-500 font-medium"><i class="fa-solid fa-keyboard mr-1 text-slate-400"></i> 수동 입력 또는 테스트 스캔:</span>
+                    <div class="flex gap-2">
+                        <input type="text" id="manualQrInput" placeholder="QR ID 또는 풀 URL 입력 (예: ELEC-2026-101)" class="border border-slate-300 px-3 py-2 text-xs rounded-lg w-full focus:ring-2 focus:ring-blue-500 outline-none">
+                        <button onclick="manualQrSearch()" class="bg-slate-800 text-white text-xs px-4 py-2 rounded-lg hover:bg-slate-900 font-semibold whitespace-nowrap">조회</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: Printable Tag Labels -->
+        <section id="view-tags" class="tab-content hidden">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center no-print">
+                <div>
+                    <h2 class="font-bold text-slate-800 text-base">QR 코드 표찰 인쇄 (현장 부착용)</h2>
+                    <p class="text-xs text-slate-500">배전반, 비상발전기 등에 부착 가능한 QR 스티커 라벨입니다. 스캔 시 전체 설비 데이터가 압축 전달됩니다.</p>
+                </div>
+                <button onclick="window.print()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow">
+                    <i class="fa-solid fa-print mr-1"></i> QR 라벨 인쇄
+                </button>
+            </div>
+
+            <div id="tagGridContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- QR Tag Cards injected via JS -->
+            </div>
+        </section>
+
+        <!-- TAB 4: Handover Official Report View -->
+        <section id="view-report" class="tab-content hidden">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center no-print">
+                <div>
+                    <h2 class="font-bold text-slate-800 text-base">전기시설물 인수인계 종합 보고서</h2>
+                    <p class="text-xs text-slate-500">인사이동 시 제출 및 보관용 공공기관 표준 시설물 인수 내역서입니다.</p>
+                </div>
+                <button onclick="window.print()" class="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow">
+                    <i class="fa-solid fa-file-pdf mr-1"></i> 보고서 인쇄/PDF 저장
+                </button>
+            </div>
+
+            <div class="bg-white p-8 rounded-xl shadow border border-slate-200 max-w-4xl mx-auto print-card">
+                <div class="text-center border-b-2 border-slate-800 pb-4 mb-6">
+                    <h1 class="text-2xl font-bold tracking-tight text-slate-900">전기 시설물 인수인계 서약 및 대장</h1>
+                    <p class="text-xs text-slate-500 mt-1">시설관리공단 전기팀 직무 인수인계용</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 text-xs mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <div><span class="font-bold">인계자 (전임자):</span> _________________ (인)</div>
+                    <div><span class="font-bold">인수자 (후임자):</span> _________________ (인)</div>
+                    <div><span class="font-bold">인수인계 일자:</span> <span id="reportDate"></span></div>
+                    <div><span class="font-bold">총 관리 시설물:</span> <span id="reportTotalCount" class="font-bold text-blue-600">0</span> 건</div>
+                </div>
+
+                <table class="w-full text-xs text-left border-collapse border border-slate-300 mb-6">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-700 font-bold border-b border-slate-300">
+                            <th class="border border-slate-300 p-2 text-center">QR 코드</th>
+                            <th class="border border-slate-300 p-2">시설물명 및 위치</th>
+                            <th class="border border-slate-300 p-2">용량/전압</th>
+                            <th class="border border-slate-300 p-2 text-center">상태</th>
+                            <th class="border border-slate-300 p-2">주요 인수인계 사항 및 메모</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reportTableBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+
+                <div class="text-xs text-slate-600 space-y-2 mt-8">
+                    <p class="font-bold text-slate-800">■ 시설물 인수인계 확인 사항:</p>
+                    <p>1. 위 시설물에 대한 변전실 도면, 안전관리 점검일지, 결선 상태 및 비상 연락망을 모두 상호 확인하였습니다.</p>
+                    <p>2. 설비별 특이사항(과거 트립 이력, 소모품 교체 주기 등) 및 인수인계 메모 내역을 이상 없이 전달받았습니다.</p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Modal: View / Add / Edit Facility Details & Memos & Photos -->
+    <div id="facilityModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4 overflow-y-auto no-print">
+        <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden my-auto">
+            <!-- Modal Header -->
+            <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                <div class="flex items-center space-x-2">
+                    <span id="modalHeaderIcon" class="text-blue-400 text-lg"><i class="fa-solid fa-charging-station"></i></span>
+                    <h3 id="modalTitle" class="font-bold text-base">전기시설물 등록 / 수정 / 인수인계 관리</h3>
+                </div>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-white transition text-2xl leading-none">&times;</button>
+            </div>
+
+            <!-- Modal Body (Scrollable) -->
+            <div class="p-6 overflow-y-auto space-y-6 text-sm flex-grow">
+                
+                <!-- Facility Form -->
+                <form id="facilityForm" onsubmit="saveFacility(event)" class="space-y-4">
+                    <input type="hidden" id="facId">
+                    
+                    <!-- Auto Generated QR Code Preview Area -->
+                    <div class="bg-blue-50 border border-blue-200 p-4 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex items-center space-x-4">
+                            <div id="modalQrBox" class="p-2 bg-white rounded-lg border border-slate-300 shadow-sm min-w-[70px] min-h-[70px] flex items-center justify-center">
+                                <!-- Generated QR Code rendering here -->
+                            </div>
+                            <div>
+                                <span class="bg-blue-600 text-white text-[10px] px-2 py-0.5 rounded font-bold uppercase">스마트 페이로드 QR</span>
+                                <h4 id="modalQrCodeDisplay" class="font-mono text-sm font-bold text-slate-800 mt-0.5">ELEC-AUTO-001</h4>
+                                <p class="text-xs text-slate-500">타 기기 스캔 시에도 이력 데이터가 포함된 QR 코드로 자동 동기화됩니다.</p>
+                            </div>
+                        </div>
+                        <button type="button" onclick="regenerateFacCode()" class="text-xs bg-white hover:bg-slate-100 border text-slate-700 px-3 py-1.5 rounded-lg transition shadow-sm font-medium">
+                            <i class="fa-solid fa-arrows-rotate mr-1 text-blue-600"></i> QR 코드 재발급
+                        </button>
+                    </div>
+
+                    <!-- Input Grid -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">사업장 (지소/시설) *</label>
+                            <select id="facWorkplace" required class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">QR 코드 관리번호 *</label>
+                            <input type="text" id="facCode" required oninput="updateModalQrPreview()" placeholder="예: ELEC-2026-001" class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none font-mono font-bold">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">시설물명 (설비명) *</label>
+                            <input type="text" id="facName" required placeholder="예: 체육진흥센터 메인 수배전반" class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">상세 위치 (건물/층/실) *</label>
+                            <input type="text" id="facLocation" required placeholder="예: 본청 지하 1층 변전실" class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">설비 분류 *</label>
+                            <select id="facCategory" class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                                <option value="수배전반">수배전반/변전실</option>
+                                <option value="비상발전기">비상발전기</option>
+                                <option value="승강기">승강기/에스컬레이터</option>
+                                <option value="태양광/RPS">태양광/신재생</option>
+                                <option value="조명/동력">조명/동력분전반</option>
+                                <option value="기타">기타 전기설비</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">전압 및 정격용량</label>
+                            <input type="text" id="facSpec" placeholder="예: 22.9kV / 500kVA" class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">설치연도 / 준공일</label>
+                            <input type="date" id="facInstallDate" class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">인수 상태</label>
+                            <select id="facStatus" class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                                <option value="양호">양호 (이상 없음)</option>
+                                <option value="점검필요">점검필요 (관심 소요)</option>
+                                <option value="수리중">수리중 / 조치필요</option>
+                                <option value="미인수">미인수 (전수조사 예정)</option>
+                            </select>
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">안전관리 담당자/연락처</label>
+                            <input type="text" id="facContact" placeholder="예: 홍길동 주임 (010-1234-5678)" class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                    </div>
+
+                    <!-- Submit / Save / Delete Action Buttons -->
+                    <div class="flex justify-between items-center pt-2 border-t border-slate-200">
+                        <button type="button" id="btnDeleteFacility" onclick="deleteActiveFacility()" class="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-3 py-2 rounded-lg text-xs font-semibold transition hidden">
+                            <i class="fa-solid fa-trash-can mr-1"></i> 설비 삭제
+                        </button>
+                        <div class="flex gap-2 ml-auto">
+                            <button type="button" onclick="closeModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-xs font-semibold transition">
+                                취소
+                            </button>
+                            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-xs font-bold transition shadow">
+                                <i class="fa-solid fa-floppy-disk mr-1"></i> <span id="btnSaveText">저장하기</span>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- Memo Section -->
+                <div id="memoSection" class="pt-4 border-t border-slate-200 space-y-3">
+                    <div class="flex justify-between items-center">
+                        <h4 class="font-bold text-slate-800 text-xs flex items-center">
+                            <i class="fa-solid fa-comment-dots text-blue-600 mr-1.5"></i> 인수인계 메모 및 특이사항
+                        </h4>
+                        <span class="text-[11px] text-slate-400">등록 시 메모 추가 가능</span>
+                    </div>
+
+                    <!-- Add Memo Inputs -->
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
+                        <div class="flex flex-wrap gap-2">
+                            <select id="memoCategory" class="border border-slate-300 rounded text-xs p-1.5 bg-white">
+                                <option value="운전특이사항">운전특이사항</option>
+                                <option value="고장수리이력">고장수리이력</option>
+                                <option value="부품교체주기">부품교체주기</option>
+                                <option value="안전관리주의">안전관리주의</option>
+                                <option value="기타참고사항">기타참고사항</option>
+                            </select>
+                            <input type="text" id="memoAuthor" placeholder="작성자 (예: 김전기 주임)" class="border border-slate-300 rounded text-xs p-1.5 flex-grow sm:flex-grow-0 sm:w-40">
+                        </div>
+                        <div class="flex gap-2">
+                            <textarea id="memoContent" rows="2" placeholder="전임자 전달사항, 여름철 피크 부하 특이점, 차단기 트립 이력 등 메모를 입력하세요..." class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+                            <button type="button" onclick="addMemo()" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap self-end transition">
+                                <i class="fa-solid fa-plus mr-1"></i> 메모 추가
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Memo List Container -->
+                    <div id="memoList" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        <!-- Rendered by JS -->
+                    </div>
+                </div>
+
+                <!-- Photo Attachment Section -->
+                <div id="photoSection" class="pt-4 border-t border-slate-200 space-y-3">
+                    <div class="flex justify-between items-center">
+                        <h4 class="font-bold text-slate-800 text-xs flex items-center">
+                            <i class="fa-solid fa-images text-emerald-600 mr-1.5"></i> 현장 사진 첨부
+                        </h4>
+                        <label class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition shadow-sm">
+                            <i class="fa-solid fa-camera mr-1"></i> 사진 촬영 / 업로드
+                            <input type="file" accept="image/*" onchange="uploadPhoto(event)" class="hidden">
+                        </label>
+                    </div>
+
+                    <!-- Photo Gallery Grid -->
+                    <div id="photoGallery" class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <!-- Rendered by JS -->
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Workplace (사업장) Management -->
+    <div id="workplaceModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4 no-print">
+        <div class="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div class="bg-slate-900 text-white px-5 py-3.5 flex justify-between items-center">
+                <h3 class="font-bold text-sm"><i class="fa-solid fa-building mr-2 text-blue-400"></i>사업장(지소/시설) 관리</h3>
+                <button onclick="closeWorkplaceModal()" class="text-slate-400 hover:text-white transition text-lg">&times;</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div class="flex gap-2">
+                    <input type="text" id="newWorkplaceName" placeholder="신규 사업장명 (예: 하수처리장)" class="border border-slate-300 rounded-lg p-2 text-xs w-full focus:ring-2 focus:ring-blue-500 outline-none">
+                    <button onclick="addWorkplace()" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-blue-700 whitespace-nowrap">
+                        <i class="fa-solid fa-plus mr-1"></i> 추가
+                    </button>
+                </div>
+
+                <div class="border rounded-lg p-2 bg-slate-50 max-h-60 overflow-y-auto">
+                    <label class="block text-[11px] font-bold text-slate-500 mb-2 px-1">등록된 사업장 목록</label>
+                    <ul id="workplaceList" class="space-y-1">
+                        <!-- Populated dynamically -->
+                    </ul>
+                </div>
+            </div>
+            <div class="bg-slate-50 px-5 py-3 text-right border-t">
+                <button onclick="closeWorkplaceModal()" class="bg-slate-800 text-white px-4 py-1.5 rounded text-xs font-semibold">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-xl text-xs transition transform translate-y-20 opacity-0 z-50 flex items-center space-x-2 border border-slate-700">
+        <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toastMsg">처리되었습니다.</span>
+    </div>
+
+    <script>
+        // Default Workplaces & Facilities Sample Data
+        const DEFAULT_WORKPLACES = ["본청", "체육진흥센터", "공영주차장", "환경사업소"];
+
+        const SAMPLE_DATA = [
+            {
+                id: "fac-1",
+                workplace: "본청",
+                code: "ELEC-2026-101",
+                name: "본관 지하1층 메인 VCB 수배전반",
+                location: "본관 지하 1층 전기실",
+                category: "수배전반",
+                spec: "22.9kV / 1000kVA",
+                installDate: "2018-05-10",
+                status: "양호",
+                contact: "김전기 차장 (내선 301)",
+                memos: [
+                    { id: "m1", category: "운전특이사항", author: "이인계", date: "2026-01-15", text: "여름철 피크 시 3번 VCB 차단기 발열 소폭 상승함. 서모그래피 부하 점검 필요." },
+                    { id: "m2", category: "부품교체주기", author: "김인수", date: "2026-02-01", text: "정전용량형 부싱 및 보호계전기 2027년 종합정밀점검 시 교체 권장." }
+                ],
+                photos: [
+                    "https://placehold.co/400x300/1e293b/ffffff?text=VCB+Panel+Photo"
+                ]
+            },
+            {
+                id: "fac-2",
+                workplace: "체육진흥센터",
+                code: "ELEC-2026-102",
+                name: "체육진흥센터 비상발전기",
+                location: "체육센터 외부 발전기실",
+                category: "비상발전기",
+                spec: "400kW / Diesel",
+                installDate: "2020-11-20",
+                status: "점검필요",
+                contact: "박시설 주임 (내선 405)",
+                memos: [
+                    { id: "m3", category: "고장수리이력", author: "박시설", date: "2026-02-10", text: "시동용 축전지(24V) 전압 저하로 충전기 레귤레이터 조정함. 2개월 내 배터리 교체 필수." }
+                ],
+                photos: []
+            },
+            {
+                id: "fac-3",
+                workplace: "공영주차장",
+                code: "ELEC-2026-103",
+                name: "공영주차장 태양광 인버터 #1",
+                location: "제2공영주차장 옥상",
+                category: "태양광/RPS",
+                spec: "50kW (동양E&P)",
+                installDate: "2021-08-15",
+                status: "양호",
+                contact: "최에너지 대리 (내선 210)",
+                memos: [
+                    { id: "m4", category: "기타참고사항", author: "최에너지", date: "2026-01-20", text: "모니터링 RTU 통신 에러 발생 시 AC 메인 차단기 3분간 OFF 후 재투입 시 정상복구됨." }
+                ],
+                photos: []
+            }
+        ];
+
+        let facilities = [];
+        let workplaces = [];
+        let activeModalFacId = null;
+        let draftMemos = [];
+        let draftPhotos = [];
+        let html5QrScanner = null;
+        let currentFacingMode = "environment"; // 'environment' or 'user'
+
+        // UTF-8 Helper for Safe Base64 Encoding across devices
+        function utf8ToBase64(str) {
+            try {
+                return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
+            } catch(e) {
+                return btoa(str);
+            }
+        }
+
+        function base64ToUtf8(str) {
+            try {
+                return decodeURIComponent(Array.prototype.map.call(atob(str), c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+            } catch(e) {
+                return atob(str);
+            }
+        }
+
+        // Check current hosting environment
+        function checkEnvironment() {
+            const isFileProto = window.location.protocol === 'file:';
+            const isBlobProto = window.location.protocol === 'blob:';
+            const hostBadge = document.getElementById('hostStatusText');
+            const envBanner = document.getElementById('envWarningBanner');
+
+            if (isFileProto || isBlobProto) {
+                if (hostBadge) hostBadge.innerText = '로컬/미리보기 (카메라직접스캔 불가)';
+                if (envBanner) envBanner.classList.remove('hidden');
+            } else {
+                if (hostBadge) hostBadge.innerText = '웹서버 정상 가동중';
+            }
+        }
+
+        // Compact & Efficient Smart QR Generator
+        function getFacilityQrUrl(fac) {
+            let baseUrl = window.location.href.split('?')[0].split('#')[0];
+            
+            // Fallback base URL for blob, file, or preview sandboxes
+            if (baseUrl.startsWith('about:') || baseUrl.startsWith('blob:') || baseUrl.startsWith('file:')) {
+                baseUrl = window.location.origin + window.location.pathname;
+            }
+
+            let facilityObj = typeof fac === 'string' ? facilities.find(f => f.code === fac) : fac;
+            
+            if (!facilityObj) {
+                const targetCode = typeof fac === 'string' ? fac : (fac?.code || 'ELEC-NONE');
+                return `${baseUrl}?code=${encodeURIComponent(targetCode)}`;
+            }
+
+            try {
+                // Optimized compact payload containing key facility attributes
+                const payload = {
+                    c: facilityObj.code,
+                    n: facilityObj.name,
+                    w: facilityObj.workplace || '본청',
+                    l: facilityObj.location,
+                    k: facilityObj.category,
+                    s: facilityObj.spec || '',
+                    d: facilityObj.installDate || '',
+                    st: facilityObj.status || '양호',
+                    ct: facilityObj.contact || '',
+                    m: (facilityObj.memos || []).slice(0, 3).map(m => ({ c: m.category, a: m.author, d: m.date, t: m.text }))
+                };
+                const b64Payload = utf8ToBase64(JSON.stringify(payload));
+                return `${baseUrl}?code=${encodeURIComponent(facilityObj.code)}&d=${encodeURIComponent(b64Payload)}`;
+            } catch(e) {
+                return `${baseUrl}?code=${encodeURIComponent(facilityObj.code)}`;
+            }
+        }
+
+        window.onload = function() {
+            checkEnvironment();
+
+            const savedFacs = localStorage.getItem('GONGDAN_ELEC_FACILITIES');
+            const savedWps = localStorage.getItem('GONGDAN_ELEC_WORKPLACES');
+
+            if (savedWps) {
+                try { workplaces = JSON.parse(savedWps); } catch(e) { workplaces = DEFAULT_WORKPLACES; }
+            } else {
+                workplaces = DEFAULT_WORKPLACES;
+                saveWorkplacesToLocalStorage();
+            }
+
+            if (savedFacs) {
+                try { facilities = JSON.parse(savedFacs); } catch(e) { facilities = SAMPLE_DATA; }
+            } else {
+                facilities = SAMPLE_DATA;
+                saveToLocalStorage();
+            }
+
+            renderWorkplaceOptions();
+            renderFacilityList();
+            renderQrTags();
+            renderReport();
+            
+            document.getElementById('reportDate').innerText = new Date().toISOString().split('T')[0];
+
+            // Parse URL parameters when opened directly via smartphone camera scanning
+            parseUrlParametersAndOpen();
+        };
+
+        // Automatically check window URL parameters or hash on page load
+        function parseUrlParametersAndOpen() {
+            const searchStr = window.location.search || (window.location.hash.includes('?') ? '?' + window.location.hash.split('?')[1] : '');
+            const urlParams = new URLSearchParams(searchStr);
+            const scannedCode = urlParams.get('code');
+            const encodedData = urlParams.get('d');
+
+            if (scannedCode || encodedData) {
+                setTimeout(() => {
+                    processScannedQrData(scannedCode, encodedData);
+                }, 300);
+            }
+        }
+
+        // Process Scanned QR Data
+        function processScannedQrData(codeStr, encodedPayloadStr = null) {
+            let targetCode = codeStr ? codeStr.trim() : null;
+            
+            // Look for existing facility in local storage
+            let fac = null;
+            if (targetCode) {
+                fac = facilities.find(f => f.code.toLowerCase() === targetCode.toLowerCase());
+            }
+
+            // If facility not found locally, decode embedded QR payload ('d=' parameter)
+            if (!fac && encodedPayloadStr) {
+                try {
+                    const jsonStr = base64ToUtf8(decodeURIComponent(encodedPayloadStr));
+                    const p = JSON.parse(jsonStr);
+                    
+                    fac = {
+                        id: 'fac-' + Date.now(),
+                        code: p.c || targetCode || 'ELEC-2026-NEW',
+                        name: p.n || '스캔된 신규 전기설비',
+                        workplace: p.w || workplaces[0] || '본청',
+                        location: p.l || '위치 미지정',
+                        category: p.k || '수배전반',
+                        spec: p.s || '',
+                        installDate: p.d || '',
+                        status: p.st || '양호',
+                        contact: p.ct || '',
+                        memos: (p.m || []).map((m, i) => ({ id: 'm-' + i + '-' + Date.now(), category: m.c, author: m.a, date: m.d, text: m.t })),
+                        photos: []
+                    };
+
+                    // Add new facility to local facilities list
+                    facilities.unshift(fac);
+                    saveToLocalStorage();
+                    renderFacilityList();
+                    renderQrTags();
+                    renderReport();
+                    showToast(`[${fac.name}] QR 내장 정보가 자동으로 동기화되었습니다.`);
+                } catch(e) {
+                    console.error("Payload decode error:", e);
+                }
+            }
+
+            if (fac) {
+                playScanBeep();
+                openModal('edit', fac.id);
+                showToast(`[${fac.name}] 시설물 정보를 확인합니다.`);
+            } else if (targetCode) {
+                if (confirm(`QR 관리번호 [${targetCode}] 시설물 정보가 등록되지 않았습니다.\n새로 등록하시겠습니까?`)) {
+                    openModal('add');
+                    document.getElementById('facCode').value = targetCode;
+                    updateModalQrPreview();
+                }
+            } else {
+                showToast('올바른 QR 코드 정보를 인식하지 못했습니다.');
+            }
+        }
+
+        function playScanBeep() {
+            try {
+                if (navigator.vibrate) navigator.vibrate(100);
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(880, ctx.currentTime);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.15);
+            } catch(e) {}
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('block'));
+
+            const targetView = document.getElementById(`view-${tabName}`);
+            if (targetView) targetView.classList.remove('hidden'), targetView.classList.add('block');
+
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('border-blue-600', 'text-blue-600');
+                btn.classList.add('border-transparent', 'text-slate-500');
+            });
+
+            const activeBtn = document.getElementById(`tab-${tabName}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('border-transparent', 'text-slate-500');
+                activeBtn.classList.add('border-blue-600', 'text-blue-600');
+            }
+
+            if (tabName === 'scan') {
+                startQrCamera();
+            } else {
+                stopQrCamera();
+            }
+
+            if (tabName === 'tags') renderQrTags();
+            if (tabName === 'report') renderReport();
+        }
+
+        function saveToLocalStorage() {
+            localStorage.setItem('GONGDAN_ELEC_FACILITIES', JSON.stringify(facilities));
+        }
+
+        function saveWorkplacesToLocalStorage() {
+            localStorage.setItem('GONGDAN_ELEC_WORKPLACES', JSON.stringify(workplaces));
+        }
+
+        function renderFacilityList() {
+            const container = document.getElementById('facilityContainer');
+            const searchVal = document.getElementById('searchInput').value.trim().toLowerCase();
+            const wpFilter = document.getElementById('workplaceFilter').value;
+            const catFilter = document.getElementById('categoryFilter').value;
+            const stFilter = document.getElementById('statusFilter').value;
+
+            const filtered = facilities.filter(f => {
+                const matchSearch = f.name.toLowerCase().includes(searchVal) || 
+                                    f.location.toLowerCase().includes(searchVal) || 
+                                    f.code.toLowerCase().includes(searchVal);
+                const matchWp = wpFilter === 'ALL' || f.workplace === wpFilter;
+                const matchCat = catFilter === 'ALL' || f.category === catFilter;
+                const matchSt = stFilter === 'ALL' || f.status === stFilter;
+                return matchSearch && matchWp && matchCat && matchSt;
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full bg-white rounded-xl p-8 text-center text-slate-400 border border-slate-200">
+                        <i class="fa-solid fa-folder-open text-4xl mb-2"></i>
+                        <p class="text-sm">조회된 전기시설물이 없습니다.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const getStatusBadge = (status) => {
+                switch(status) {
+                    case '양호': return '<span class="bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded font-bold"><i class="fa-solid fa-circle-check mr-1"></i>양호</span>';
+                    case '점검필요': return '<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>점검필요</span>';
+                    case '수리중': return '<span class="bg-rose-100 text-rose-800 text-xs px-2 py-0.5 rounded font-bold"><i class="fa-solid fa-wrench mr-1"></i>수리중</span>';
+                    default: return '<span class="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded font-bold"><i class="fa-solid fa-question mr-1"></i>미인수</span>';
+                }
+            };
+
+            container.innerHTML = filtered.map((fac, idx) => {
+                const qrDivId = `facility-card-qr-${idx}`;
+                const memoCount = fac.memos ? fac.memos.length : 0;
+                const photoCount = fac.photos ? fac.photos.length : 0;
+
+                setTimeout(() => {
+                    const el = document.getElementById(qrDivId);
+                    if (el) {
+                        el.innerHTML = '';
+                        new QRCode(el, {
+                            text: getFacilityQrUrl(fac),
+                            width: 58,
+                            height: 58,
+                            colorDark: "#0f172a",
+                            colorLight: "#ffffff",
+                            correctLevel: QRCode.CorrectLevel.L
+                        });
+                    }
+                }, 50);
+
+                return `
+                    <div class="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition flex flex-col justify-between overflow-hidden">
+                        <div class="p-4 border-b border-slate-100 flex items-start justify-between gap-2">
+                            <div class="space-y-1">
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <span class="bg-blue-100 text-blue-800 text-[11px] font-bold px-2 py-0.5 rounded">${fac.workplace || '기타'}</span>
+                                    <span class="bg-slate-100 text-slate-700 text-[11px] px-2 py-0.5 rounded font-medium">${fac.category}</span>
+                                </div>
+                                <h3 class="font-bold text-slate-900 text-base leading-snug cursor-pointer hover:text-blue-600 transition" onclick="openModal('edit', '${fac.id}')">${fac.name}</h3>
+                                <p class="text-xs text-slate-500"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i>${fac.location}</p>
+                            </div>
+                            <div class="flex flex-col items-end gap-1">
+                                ${getStatusBadge(fac.status)}
+                                <span class="font-mono text-[10px] text-slate-400 font-semibold">${fac.code}</span>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-slate-50/50 flex items-center justify-between text-xs space-x-3">
+                            <div id="${qrDivId}" class="p-1 bg-white rounded border border-slate-200 flex-shrink-0 cursor-pointer shadow-sm" onclick="openModal('edit', '${fac.id}')"></div>
+                            <div class="flex-grow space-y-1 text-slate-600">
+                                <div><span class="font-medium text-slate-400">정격:</span> ${fac.spec || '미입력'}</div>
+                                <div><span class="font-medium text-slate-400">담당:</span> ${fac.contact || '미지정'}</div>
+                                <div class="flex items-center space-x-3 pt-1 text-[11px]">
+                                    <span class="${memoCount > 0 ? 'text-blue-600 font-bold' : 'text-slate-400'}"><i class="fa-solid fa-comment-dots mr-1"></i>메모 ${memoCount}</span>
+                                    <span class="${photoCount > 0 ? 'text-emerald-600 font-bold' : 'text-slate-400'}"><i class="fa-solid fa-image mr-1"></i>사진 ${photoCount}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-3 bg-white border-t border-slate-100 flex gap-2">
+                            <button onclick="openModal('edit', '${fac.id}')" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold py-2 rounded-lg transition flex items-center justify-center gap-1">
+                                <i class="fa-solid fa-pen-to-square"></i> 정보 수정 / 인수인계 메모
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function openModal(mode, facId = null) {
+            const modal = document.getElementById('facilityModal');
+            activeModalFacId = facId;
+            modal.classList.remove('hidden');
+
+            if (mode === 'add') {
+                document.getElementById('modalTitle').innerText = '신규 전기설비 등록';
+                document.getElementById('btnSaveText').innerText = '설비 저장';
+                document.getElementById('btnDeleteFacility').classList.add('hidden');
+                document.getElementById('facId').value = '';
+                document.getElementById('facilityForm').reset();
+
+                const newCode = `ELEC-2026-${String(facilities.length + 101).padStart(3, '0')}`;
+                document.getElementById('facCode').value = newCode;
+                draftMemos = [];
+                draftPhotos = [];
+            } else if (mode === 'edit') {
+                document.getElementById('modalTitle').innerText = '전기설비 정보 수정 & 인수인계 관리';
+                document.getElementById('btnSaveText').innerText = '수정사항 저장';
+                document.getElementById('btnDeleteFacility').classList.remove('hidden');
+
+                const fac = facilities.find(f => f.id === facId);
+                if (fac) {
+                    document.getElementById('facId').value = fac.id;
+                    document.getElementById('facWorkplace').value = fac.workplace || workplaces[0];
+                    document.getElementById('facCode').value = fac.code;
+                    document.getElementById('facName').value = fac.name;
+                    document.getElementById('facLocation').value = fac.location;
+                    document.getElementById('facCategory').value = fac.category;
+                    document.getElementById('facSpec').value = fac.spec || '';
+                    document.getElementById('facInstallDate').value = fac.installDate || '';
+                    document.getElementById('facStatus').value = fac.status || '양호';
+                    document.getElementById('facContact').value = fac.contact || '';
+                    
+                    draftMemos = fac.memos ? [...fac.memos] : [];
+                    draftPhotos = fac.photos ? [...fac.photos] : [];
+                }
+            }
+
+            renderMemos();
+            renderPhotos();
+            updateModalQrPreview();
+        }
+
+        function closeModal() {
+            document.getElementById('facilityModal').classList.add('hidden');
+            activeModalFacId = null;
+            draftMemos = [];
+            draftPhotos = [];
+        }
+
+        function updateModalQrPreview() {
+            const codeInput = document.getElementById('facCode').value.trim() || 'ELEC-NONE';
+            document.getElementById('modalQrCodeDisplay').innerText = codeInput;
+            const qrBox = document.getElementById('modalQrBox');
+            qrBox.innerHTML = '';
+
+            const facObj = {
+                code: codeInput,
+                name: document.getElementById('facName').value.trim() || '신규 시설물',
+                workplace: document.getElementById('facWorkplace').value || workplaces[0],
+                location: document.getElementById('facLocation').value.trim() || '위치 미지정',
+                category: document.getElementById('facCategory').value || '수배전반',
+                spec: document.getElementById('facSpec').value.trim() || '',
+                installDate: document.getElementById('facInstallDate').value || '',
+                status: document.getElementById('facStatus').value || '양호',
+                contact: document.getElementById('facContact').value.trim() || '',
+                memos: draftMemos
+            };
+
+            const qrUrl = getFacilityQrUrl(facObj);
+
+            new QRCode(qrBox, {
+                text: qrUrl,
+                width: 68,
+                height: 68,
+                colorDark: "#0f172a",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.L
+            });
+        }
+
+        function regenerateFacCode() {
+            const randomCode = `ELEC-2026-${Math.floor(100 + Math.random() * 900)}`;
+            document.getElementById('facCode').value = randomCode;
+            updateModalQrPreview();
+        }
+
+        function saveFacility(event) {
+            event.preventDefault();
+
+            const facId = document.getElementById('facId').value;
+            const workplace = document.getElementById('facWorkplace').value;
+            const code = document.getElementById('facCode').value.trim();
+            const name = document.getElementById('facName').value.trim();
+            const location = document.getElementById('facLocation').value.trim();
+            const category = document.getElementById('facCategory').value;
+            const spec = document.getElementById('facSpec').value.trim();
+            const installDate = document.getElementById('facInstallDate').value;
+            const status = document.getElementById('facStatus').value;
+            const contact = document.getElementById('facContact').value.trim();
+
+            if (facId) {
+                const facIndex = facilities.findIndex(f => f.id === facId);
+                if (facIndex !== -1) {
+                    facilities[facIndex] = {
+                        ...facilities[facIndex],
+                        workplace, code, name, location, category, spec, installDate, status, contact,
+                        memos: [...draftMemos],
+                        photos: [...draftPhotos]
+                    };
+                }
+            } else {
+                const newFacility = {
+                    id: 'fac-' + Date.now(),
+                    workplace, code, name, location, category, spec, installDate, status, contact,
+                    memos: [...draftMemos],
+                    photos: [...draftPhotos]
+                };
+                facilities.unshift(newFacility);
+            }
+
+            saveToLocalStorage();
+            closeModal();
+            renderFacilityList();
+            renderQrTags();
+            renderReport();
+            showToast('시설물 정보 및 인수인계 메모가 저장되었습니다.');
+        }
+
+        function deleteActiveFacility() {
+            if (!activeModalFacId) return;
+            if (confirm('이 전기설비 항목을 삭제하시겠습니까?')) {
+                facilities = facilities.filter(f => f.id !== activeModalFacId);
+                saveToLocalStorage();
+                closeModal();
+                renderFacilityList();
+                renderQrTags();
+                renderReport();
+                showToast('시설물이 삭제되었습니다.');
+            }
+        }
+
+        function renderMemos() {
+            const memoList = document.getElementById('memoList');
+            if (draftMemos.length === 0) {
+                memoList.innerHTML = `<p class="text-xs text-slate-400 py-2 text-center">등록된 특이사항 및 인수인계 메모가 없습니다.</p>`;
+                return;
+            }
+
+            memoList.innerHTML = draftMemos.map((m, idx) => `
+                <div class="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex justify-between items-start gap-2 shadow-sm">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded">${m.category}</span>
+                            <span class="font-bold text-slate-700">${m.author || '익명'}</span>
+                            <span class="text-slate-400 text-[10px]">${m.date}</span>
+                        </div>
+                        <p class="text-slate-800 leading-normal">${m.text}</p>
+                    </div>
+                    <button onclick="deleteMemo(${idx})" class="text-slate-400 hover:text-rose-600 transition p-1">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function addMemo() {
+            const category = document.getElementById('memoCategory').value;
+            const author = document.getElementById('memoAuthor').value.trim() || '전기담당자';
+            const content = document.getElementById('memoContent').value.trim();
+
+            if (!content) {
+                showToast('메모 내용을 입력하세요.');
+                return;
+            }
+
+            draftMemos.unshift({
+                id: 'm-' + Date.now(),
+                category,
+                author,
+                date: new Date().toISOString().split('T')[0],
+                text: content
+            });
+
+            document.getElementById('memoContent').value = '';
+            renderMemos();
+            updateModalQrPreview();
+            showToast('인수인계 메모가 추가되었습니다.');
+        }
+
+        function deleteMemo(index) {
+            draftMemos.splice(index, 1);
+            renderMemos();
+            updateModalQrPreview();
+        }
+
+        function renderPhotos() {
+            const gallery = document.getElementById('photoGallery');
+            if (draftPhotos.length === 0) {
+                gallery.innerHTML = `<p class="col-span-full text-xs text-slate-400 py-2 text-center">첨부된 사진이 없습니다.</p>`;
+                return;
+            }
+
+            gallery.innerHTML = draftPhotos.map((url, idx) => `
+                <div class="relative group rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-video">
+                    <img src="${url}" class="w-full h-full object-cover" onerror="this.src='https://placehold.co/300x200?text=Image+Error'">
+                    <button onclick="deletePhoto(${idx})" class="absolute top-1 right-1 bg-rose-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow opacity-90 hover:opacity-100 transition">
+                        &times;
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function uploadPhoto(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                draftPhotos.push(e.target.result);
+                renderPhotos();
+                showToast('사진이 첨부되었습니다.');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function deletePhoto(index) {
+            draftPhotos.splice(index, 1);
+            renderPhotos();
+        }
+
+        function openWorkplaceModal() {
+            renderWorkplaceListModal();
+            document.getElementById('workplaceModal').classList.remove('hidden');
+        }
+
+        function closeWorkplaceModal() {
+            document.getElementById('workplaceModal').classList.add('hidden');
+        }
+
+        function renderWorkplaceListModal() {
+            const listEl = document.getElementById('workplaceList');
+            listEl.innerHTML = workplaces.map((wp, idx) => `
+                <li class="flex justify-between items-center p-2 bg-white rounded border border-slate-200 text-xs">
+                    <span class="font-medium text-slate-800"><i class="fa-solid fa-building mr-1.5 text-blue-500"></i>${wp}</span>
+                    <button onclick="deleteWorkplace(${idx})" class="text-rose-500 hover:text-rose-700 text-xs font-semibold px-1">삭제</button>
+                </li>
+            `).join('');
+        }
+
+        function addWorkplace() {
+            const val = document.getElementById('newWorkplaceName').value.trim();
+            if (!val) return;
+            if (!workplaces.includes(val)) {
+                workplaces.push(val);
+                saveWorkplacesToLocalStorage();
+                renderWorkplaceOptions();
+                renderWorkplaceListModal();
+                document.getElementById('newWorkplaceName').value = '';
+                showToast('사업장이 추가되었습니다.');
+            }
+        }
+
+        function deleteWorkplace(index) {
+            if (workplaces.length <= 1) {
+                showToast('최소 한 개의 사업장이 존재해야 합니다.');
+                return;
+            }
+            workplaces.splice(index, 1);
+            saveWorkplacesToLocalStorage();
+            renderWorkplaceOptions();
+            renderWorkplaceListModal();
+        }
+
+        function renderWorkplaceOptions() {
+            const filterEl = document.getElementById('workplaceFilter');
+            const selectEl = document.getElementById('facWorkplace');
+
+            filterEl.innerHTML = '<option value="ALL">🏢 전체 사업장</option>' + 
+                workplaces.map(w => `<option value="${w}">${w}</option>`).join('');
+
+            selectEl.innerHTML = workplaces.map(w => `<option value="${w}">${w}</option>`).join('');
+        }
+
+        // Camera Scanner Engine
+        function startQrCamera() {
+            const readerDiv = document.getElementById('qr-reader');
+            if (!readerDiv) return;
+
+            stopQrCamera();
+
+            document.getElementById('cameraStatusText').innerText = "카메라를 설비 QR 코드에 비춰주세요.";
+
+            html5QrScanner = new Html5Qrcode("qr-reader");
+            const config = { 
+                fps: 15, 
+                qrbox: { width: 220, height: 220 },
+                aspectRatio: 1.0
+            };
+
+            html5QrScanner.start(
+                { facingMode: currentFacingMode },
+                config,
+                (decodedText) => {
+                    handleQrScannedRawInput(decodedText);
+                },
+                (errorMessage) => {
+                    // Scanning active...
+                }
+            ).catch(err => {
+                document.getElementById('cameraStatusText').innerText = "카메라에 접근할 수 없습니다. 권한을 허용하거나 수동 조회를 이용하세요.";
+            });
+        }
+
+        function stopQrCamera() {
+            if (html5QrScanner) {
+                html5QrScanner.stop().then(() => {
+                    html5QrScanner = null;
+                }).catch(() => {
+                    html5QrScanner = null;
+                });
+            }
+        }
+
+        function toggleCameraFacing() {
+            currentFacingMode = (currentFacingMode === "environment") ? "user" : "environment";
+            startQrCamera();
+            showToast(`카메라가 ${currentFacingMode === "environment" ? "후면" : "전면"}으로 전환되었습니다.`);
+        }
+
+        function restartCamera() {
+            startQrCamera();
+            showToast('카메라를 다시 시작합니다.');
+        }
+
+        function manualQrSearch() {
+            const input = document.getElementById('manualQrInput').value.trim();
+            if (!input) return;
+            handleQrScannedRawInput(input);
+        }
+
+        // Generic Raw QR Input Resolver
+        function handleQrScannedRawInput(rawText) {
+            if (!rawText) return;
+
+            let codeParam = null;
+            let payloadParam = null;
+
+            if (rawText.includes('?') || rawText.includes('code=')) {
+                try {
+                    let searchPart = rawText;
+                    if (rawText.includes('?')) {
+                        searchPart = rawText.substring(rawText.indexOf('?'));
+                    }
+                    const parsedUrlParams = new URLSearchParams(searchPart);
+                    codeParam = parsedUrlParams.get('code');
+                    payloadParam = parsedUrlParams.get('d');
+                } catch(e) {}
+            }
+
+            if (!codeParam && rawText.length < 50) {
+                codeParam = rawText.trim();
+            }
+
+            processScannedQrData(codeParam, payloadParam);
+        }
+
+        function renderQrTags() {
+            const container = document.getElementById('tagGridContainer');
+            container.innerHTML = '';
+
+            facilities.forEach((fac, index) => {
+                const tagCard = document.createElement('div');
+                tagCard.className = 'bg-white p-4 rounded-xl border-2 border-slate-800 flex flex-col justify-between print-card shadow-sm';
+                
+                const qrDivId = `qrcode-tag-${index}`;
+
+                tagCard.innerHTML = `
+                    <div class="border-b-2 border-slate-800 pb-2 mb-3 flex justify-between items-center">
+                        <span class="font-bold text-xs bg-slate-900 text-white px-2 py-0.5 rounded">[${fac.workplace || '시설관리공단'}] 설비표찰</span>
+                        <span class="font-mono text-xs font-bold">${fac.code}</span>
+                    </div>
+
+                    <div class="flex items-center space-x-3 mb-3">
+                        <div id="${qrDivId}" class="p-1 border rounded bg-white flex-shrink-0"></div>
+                        <div class="text-xs space-y-1">
+                            <h4 class="font-bold text-slate-900 text-sm leading-tight">${fac.name}</h4>
+                            <p class="text-slate-600"><i class="fa-solid fa-location-dot mr-1"></i>${fac.location}</p>
+                            <p class="text-slate-500"><i class="fa-solid fa-bolt mr-1"></i>${fac.spec || '정격 정보 미입력'}</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-100 p-1.5 rounded text-[10px] text-slate-600 flex justify-between items-center">
+                        <span>스캔 시 인수인계 메모/사진 조회 및 수정</span>
+                        <span class="font-semibold text-slate-800">담당자: ${fac.contact || '전기팀'}</span>
+                    </div>
+                `;
+
+                container.appendChild(tagCard);
+
+                setTimeout(() => {
+                    const el = document.getElementById(qrDivId);
+                    if (el) {
+                        el.innerHTML = '';
+                        new QRCode(el, {
+                            text: getFacilityQrUrl(fac),
+                            width: 72,
+                            height: 72,
+                            colorDark: "#0f172a",
+                            colorLight: "#ffffff",
+                            correctLevel: QRCode.CorrectLevel.L
+                        });
+                    }
+                }, 50);
+            });
+        }
+
+        function renderReport() {
+            const tbody = document.getElementById('reportTableBody');
+            document.getElementById('reportTotalCount').innerText = facilities.length;
+
+            tbody.innerHTML = facilities.map((f, idx) => {
+                const memoTexts = f.memos && f.memos.length > 0 
+                    ? f.memos.map(m => `• [${m.category}] ${m.text}`).join('<br>')
+                    : '특이사항 없음';
+
+                const qrCellId = `report-qr-${idx}`;
+
+                setTimeout(() => {
+                    const el = document.getElementById(qrCellId);
+                    if (el) {
+                        el.innerHTML = '';
+                        new QRCode(el, {
+                            text: getFacilityQrUrl(f),
+                            width: 50,
+                            height: 50,
+                            correctLevel: QRCode.CorrectLevel.L
+                        });
+                    }
+                }, 50);
+
+                return `
+                    <tr>
+                        <td class="border border-slate-300 p-2 text-center">
+                            <div id="${qrCellId}" class="flex justify-center"></div>
+                            <span class="text-[9px] font-mono text-slate-500 block mt-1">${f.code}</span>
+                        </td>
+                        <td class="border border-slate-300 p-2 font-bold">
+                            <span class="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded mr-1">${f.workplace || '기타'}</span>
+                            ${f.name}<br>
+                            <span class="text-slate-500 font-normal">${f.location}</span>
+                        </td>
+                        <td class="border border-slate-300 p-2">${f.spec || '-'}</td>
+                        <td class="border border-slate-300 p-2 text-center">${f.status}</td>
+                        <td class="border border-slate-300 p-2 text-slate-700 leading-tight">${memoTexts}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function exportData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(facilities, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", `시설관리공단_전기시설인수인계_${new Date().toISOString().split('T')[0]}.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            showToast('데이터 백업 파일이 다운로드되었습니다.');
+        }
+
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    if (Array.isArray(imported)) {
+                        facilities = imported;
+                        saveToLocalStorage();
+                        renderFacilityList();
+                        renderQrTags();
+                        renderReport();
+                        showToast('데이터가 성공적으로 복원되었습니다.');
+                    }
+                } catch(err) {
+                    showToast('올바르지 않은 백업 파일 형식입니다.');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMsg').innerText = msg;
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
+```eoc
+
+### 🛠️ 이번 업데이트로 개선된 점
+
+1. **상단 환경 진단 배너 추가 (`checkEnvironment`)**:
+   - 현재 페이지가 `file://` (로컬) 또는 미리보기 환경인지 자동으로 감지하여, 왜 핸드폰 카메라 스캔이 안 되는지 명확히 원인을 안내하는 경고 배너를 상단에 배치했습니다.
+2. **웹 호스팅 안내 및 우회 테스트 방법 제안**:
+   - 로컬 테스트 중일 때에도 앱 내부의 **'QR 현장 스캔' 탭(Tab 2)**을 이용하면 웹캠/스마트폰 카메라로 QR 인식 테스트가 가능하도록 가이드를 보완했습니다.
+3. **QR 페이로드 데이터 경량화 (`getFacilityQrUrl`)**:
+   - QR 코드 내에 인코딩되는 데이터 밀도를 줄여 기본 핸드폰 카메라도 빠르게 스캔할 수 있도록 최적화했습니다.
