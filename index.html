@@ -457,6 +457,17 @@
         </div>
     </div>
 
+    <!-- Modal: Image Lightbox Modal for Large View -->
+    <div id="imageLightboxModal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex items-center justify-center hidden p-4 cursor-zoom-out no-print" onclick="closeImageLightbox()">
+        <div class="relative max-w-5xl max-h-[90vh] w-full flex flex-col items-center justify-center" onclick="event.stopPropagation()">
+            <button onclick="closeImageLightbox()" class="absolute -top-12 right-0 text-white hover:text-slate-300 text-3xl font-bold p-2 transition focus:outline-none">
+                <i class="fa-solid fa-xmark"></i> 닫기
+            </button>
+            <img id="lightboxImg" src="" alt="확대된 설비 사진" class="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border border-slate-800">
+            <p id="lightboxCaption" class="text-xs text-slate-300 mt-3 bg-slate-900/80 px-4 py-1.5 rounded-full border border-slate-700"></p>
+        </div>
+    </div>
+
     <!-- Notification Toast -->
     <div id="toast" class="fixed bottom-5 right-5 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-xl text-xs transition transform translate-y-20 opacity-0 z-50 flex items-center space-x-2 border border-slate-700">
         <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400"></i>
@@ -565,7 +576,7 @@
             }
         }
 
-        // Compact & Efficient Smart QR Generator
+        // Compact & Efficient Smart QR Generator (High Recognition Rate)
         function getFacilityQrUrl(fac) {
             let baseUrl = window.location.href.split('?')[0].split('#')[0];
             
@@ -581,6 +592,7 @@
             }
 
             try {
+                // QR 데이터 밀도를 줄이기 위해 핵심 데이터만 압축 인코딩
                 const payload = {
                     c: facilityObj.code,
                     n: facilityObj.name,
@@ -588,11 +600,8 @@
                     l: facilityObj.location,
                     k: facilityObj.category,
                     s: facilityObj.spec || '',
-                    d: facilityObj.installDate || '',
                     st: facilityObj.status || '양호',
-                    ct: facilityObj.contact || '',
-                    p: facilityObj.pin || '0000',
-                    m: (facilityObj.memos || []).slice(0, 3).map(m => ({ c: m.category, a: m.author, d: m.date, t: m.text }))
+                    ct: facilityObj.contact || ''
                 };
                 const b64Payload = utf8ToBase64(JSON.stringify(payload));
                 return `${baseUrl}?code=${encodeURIComponent(facilityObj.code)}&d=${encodeURIComponent(b64Payload)}`;
@@ -807,8 +816,8 @@
                         el.innerHTML = '';
                         new QRCode(el, {
                             text: getFacilityQrUrl(fac),
-                            width: 58,
-                            height: 58,
+                            width: 80,
+                            height: 80,
                             colorDark: "#0f172a",
                             colorLight: "#ffffff",
                             correctLevel: QRCode.CorrectLevel.L
@@ -834,7 +843,7 @@
                         </div>
 
                         <div class="p-4 bg-slate-50/50 flex items-center justify-between text-xs space-x-3">
-                            <div id="${qrDivId}" class="p-1 bg-white rounded border border-slate-200 flex-shrink-0 cursor-pointer shadow-sm" onclick="requestFacAccess('edit', '${fac.id}')"></div>
+                            <div id="${qrDivId}" class="p-1.5 bg-white rounded-lg border border-slate-300 flex-shrink-0 cursor-pointer shadow-sm" onclick="requestFacAccess('edit', '${fac.id}')"></div>
                             <div class="flex-grow space-y-1 text-slate-600">
                                 <div><span class="font-medium text-slate-400">정격:</span> ${fac.spec || '미입력'}</div>
                                 <div><span class="font-medium text-slate-400">담당:</span> ${fac.contact || '미지정'}</div>
@@ -944,8 +953,8 @@
 
             new QRCode(qrBox, {
                 text: getFacilityQrUrl(previewFacObj),
-                width: 64,
-                height: 64,
+                width: 80,
+                height: 80,
                 colorDark: "#0f172a",
                 colorLight: "#ffffff",
                 correctLevel: QRCode.CorrectLevel.L
@@ -1142,13 +1151,34 @@
             }
 
             gallery.innerHTML = draftPhotos.map((url, idx) => `
-                <div class="relative group rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-video">
-                    <img src="${url}" class="w-full h-full object-cover" onerror="this.src='https://placehold.co/300x200?text=Image+Error'">
-                    <button type="button" onclick="deletePhoto(${idx})" class="absolute top-1 right-1 bg-rose-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow opacity-90 hover:opacity-100 transition">
+                <div class="relative group rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-video cursor-pointer" onclick="openImageLightbox('${url.replace(/'/g, "\\'")}', '첨부 사진 #${idx + 1}')">
+                    <img src="${url}" class="w-full h-full object-cover group-hover:scale-105 transition duration-200" onerror="this.src='https://placehold.co/300x200?text=Image+Error'">
+                    <div class="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs">
+                        <i class="fa-solid fa-magnifying-glass-plus mr-1"></i> 확대
+                    </div>
+                    <button type="button" onclick="event.stopPropagation(); deletePhoto(${idx})" class="absolute top-1 right-1 bg-rose-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow opacity-90 hover:opacity-100 transition z-10">
                         &times;
                     </button>
                 </div>
             `).join('');
+        }
+
+        // Image Lightbox Functions
+        function openImageLightbox(src, caption = '') {
+            const modal = document.getElementById('imageLightboxModal');
+            const img = document.getElementById('lightboxImg');
+            const captionEl = document.getElementById('lightboxCaption');
+            
+            if (modal && img) {
+                img.src = src;
+                if (captionEl) captionEl.innerText = caption || '설비 현장 사진 상세 보기';
+                modal.classList.remove('hidden');
+            }
+        }
+
+        function closeImageLightbox() {
+            const modal = document.getElementById('imageLightboxModal');
+            if (modal) modal.classList.add('hidden');
         }
 
         function uploadPhoto(event) {
@@ -1334,7 +1364,7 @@
                     </div>
 
                     <div class="flex items-center space-x-3 mb-3">
-                        <div id="${qrDivId}" class="p-1 border rounded bg-white flex-shrink-0"></div>
+                        <div id="${qrDivId}" class="p-1.5 border border-slate-300 rounded bg-white flex-shrink-0 shadow-sm"></div>
                         <div class="text-xs space-y-1">
                             <h4 class="font-bold text-slate-900 text-sm leading-tight">${fac.name}</h4>
                             <p class="text-slate-600"><i class="fa-solid fa-location-dot mr-1"></i>${fac.location}</p>
@@ -1356,8 +1386,8 @@
                         el.innerHTML = '';
                         new QRCode(el, {
                             text: getFacilityQrUrl(fac),
-                            width: 72,
-                            height: 72,
+                            width: 100,
+                            height: 100,
                             colorDark: "#0f172a",
                             colorLight: "#ffffff",
                             correctLevel: QRCode.CorrectLevel.L
@@ -1387,8 +1417,8 @@
                         el.innerHTML = '';
                         new QRCode(el, {
                             text: getFacilityQrUrl(f),
-                            width: 50,
-                            height: 50,
+                            width: 60,
+                            height: 60,
                             correctLevel: QRCode.CorrectLevel.L
                         });
                     }
